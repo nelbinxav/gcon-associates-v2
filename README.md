@@ -8,17 +8,17 @@ V1 (https://nelbinxav.github.io/gcon-associates/) is a different repository and 
 
 ## Design concept
 
-*Blueprint precision meets modern architectural consultancy.* White canvas, navy authority, blue identity, with thin technical lines, grids, section numbers and dimension labels as accents.
+*Premium architecture + engineering precision + a blue identity.* Editorial composition and generous white space (from V1), with the technical language, project numbering and specification detail of V2.
 
-- **Palette:** Navy `#0B1F3A`, Blue `#1557A6`, Technical blue `#2F80ED`, pale blues and white. Cyan `#55B8D9` only on dark panels.
-- **Type:** Space Grotesk (headings), Inter (body), IBM Plex Mono (project numbers, labels, metrics).
-- **Shapes:** rectangles, rules and grids; radius 0–3px.
-- **Imagery:** the company profile contains no project photography, so the register uses schematic linework drawings generated from the figures in the profile (floor counts, beds, acres, area). They are labelled as schematic and not to scale.
-- **Content:** every project figure, name and qualification comes from V1 / the company profile. Nothing was invented.
+- **Palette:** Navy `#0A2342`, Deep blue `#123B68`, Professional blue `#1769AA`, Technical blue `#2F80ED`, pale blues and white. A single warm neutral `#F5F3EF` is used once.
+- **Type:** Space Grotesk (headings, navigation), Inter (body), IBM Plex Mono (project numbers, labels, metadata).
+- **Shapes:** rectangles, rules and grids; radius 2px.
+- **Imagery:** the company has no project photography, so all imagery is drawn: windowed architectural elevations generated from the figures in the company profile (floor counts, beds, acres, areas), clearly labelled as schematic. Real photographs can replace them in `tools/build.py` / `index.src.html` when available.
+- **Content:** every figure, name and qualification comes from the company profile and V1. Nothing is invented.
 
 ## Technology
 
-Static HTML, CSS and ~60 lines of vanilla JS. No frameworks, no build step at runtime. SVG drawings are generated at author time.
+Static HTML, CSS and vanilla JS (nav, scroll reveals, counters, building-type tabs). No frameworks, no build step at runtime. SVG drawings are generated at author time.
 
 | File | Purpose |
 |---|---|

@@ -1,209 +1,315 @@
 #!/usr/bin/env python3
-"""Builds index.html from index.src.html by expanding {{drawing}} tokens
-into static inline SVG linework. Run from the repo root: python3 tools/build.py
-Only figures present in the G Con Associates company profile are drawn."""
+"""Builds index.html from index.src.html by expanding {{token}} markers into
+static inline SVG illustrations. Run from the repo root: python3 tools/build.py
+
+The company has no project photography, so imagery is drawn: architectural
+elevations built only from figures in the company profile (floor counts,
+beds, acres, areas). Everything is schematic and labelled as such."""
 import pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-BLUE, NAVY, BRIGHT = "#1557A6", "#0B1F3A", "#2F80ED"
+
+DAY = dict(sky="#EDF5FC", band="#DDEAF6", ground="#CFE0F0", body="#FFFFFF", edge="#123B68", win="#9EC4E8",
+           lit="#9EC4E8", shade="#0A2342", shadeop=".13", cap="#123B68", grid="#2F80ED", gridop=".08",
+           text="#0A2342", muted="#5C6977", tree="#BCD4EA", line="#1769AA", accent="#2F80ED")
+DUSK = dict(sky="#0A2342", band="#0F315B", ground="#071A33", body="#123B68", edge="#5E9BE0", win="#1B528A",
+            lit="#CFE6FF", shade="#050F1E", shadeop=".34", cap="#6FA8E0", grid="#2F80ED", gridop=".16",
+            text="#EAF3FF", muted="#9CB7D6", tree="#0D2B50", line="#6FA8E0", accent="#2F80ED")
+
+_uid = [0]
 
 
-def dim_v(x, y1, y2, label, side=1):
-    """Vertical dimension line with end ticks and a rotated label."""
-    mid = (y1 + y2) / 2
+def uid():
+    _uid[0] += 1
+    return f"u{_uid[0]}"
+
+
+def rng(seed):
+    s = [seed]
+
+    def r():
+        s[0] = (s[0] * 1103515245 + 12345) & 0x7FFFFFFF
+        return s[0] / 0x7FFFFFFF
+    return r
+
+
+def tower(x, base, w, floors, fh, th, cols=None, lit=0.0, seed=1, plant=True, lobby=True):
+    """A windowed block. Windows come from one SVG pattern, keeping markup small."""
+    h = floors * fh
+    y = base - h
+    cols = cols or max(3, round(w / (fh * 1.15)))
+    pw = w / cols
+    pid = "p" + uid()
+    o = [
+        f'<defs><pattern id="{pid}" x="{x:.1f}" y="{y:.1f}" width="{pw:.2f}" height="{fh}" patternUnits="userSpaceOnUse">'
+        f'<rect x="{pw*.15:.2f}" y="{fh*.24:.2f}" width="{pw*.70:.2f}" height="{fh*.52:.2f}" fill="{th["win"]}"/></pattern></defs>',
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{th["body"]}" stroke="{th["edge"]}" stroke-width="1.4"/>',
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="url(#{pid})"/>',
+    ]
+    if lit:
+        r = rng(seed)
+        for rr in range(floors):
+            for cc in range(cols):
+                if r() < lit:
+                    o.append(f'<rect x="{x+cc*pw+pw*.15:.1f}" y="{y+rr*fh+fh*.24:.1f}" width="{pw*.70:.1f}" height="{fh*.52:.1f}" fill="{th["lit"]}"/>')
+    o.append(f'<rect x="{x+w*.8:.1f}" y="{y:.1f}" width="{w*.2:.1f}" height="{h:.1f}" fill="{th["shade"]}" fill-opacity="{th["shadeop"]}"/>')
+    if lobby:
+        o.append(f'<rect x="{x:.1f}" y="{base-fh*1.25:.1f}" width="{w:.1f}" height="{fh*1.25:.1f}" fill="{th["body"]}" stroke="{th["edge"]}" stroke-width="1"/>')
+        o.append(f'<rect x="{x+w*.08:.1f}" y="{base-fh*1.05:.1f}" width="{w*.84:.1f}" height="{fh*.95:.1f}" fill="{th["win"]}" fill-opacity=".75"/>')
+    o.append(f'<rect x="{x-3:.1f}" y="{y-4:.1f}" width="{w+6:.1f}" height="4" fill="{th["cap"]}"/>')
+    if plant:
+        o.append(f'<rect x="{x+w*.3:.1f}" y="{y-fh*.9-4:.1f}" width="{w*.4:.1f}" height="{fh*.9:.1f}" fill="{th["body"]}" stroke="{th["edge"]}" stroke-width="1.2"/>')
+        o.append(f'<line x1="{x+w*.5:.1f}" y1="{y-fh*.9-4:.1f}" x2="{x+w*.5:.1f}" y2="{y-fh*.9-24:.1f}" stroke="{th["edge"]}" stroke-width="1.4"/>')
+    return "".join(o)
+
+
+def tree(x, base, h, th):
+    return (f'<rect x="{x-1.5}" y="{base-h*.28:.1f}" width="3" height="{h*.28:.1f}" fill="{th["tree"]}"/>'
+            f'<ellipse cx="{x}" cy="{base-h*.62:.1f}" rx="{h*.17:.1f}" ry="{h*.4:.1f}" fill="{th["tree"]}"/>')
+
+
+def trees(xs, base, th, h=70):
+    return "".join(tree(x, base, h * (0.8 + (i % 3) * 0.2), th) for i, x in enumerate(xs))
+
+
+def tag(x, y, text, th, size=15, anchor="middle", fill=None):
+    return f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="{anchor}" font-size="{size}" class="t" fill="{fill or th["text"]}">{text}</text>'
+
+
+def leader(x, y1, y2, th):
+    return f'<line x1="{x:.1f}" y1="{y1:.1f}" x2="{x:.1f}" y2="{y2:.1f}" stroke="{th["line"]}" stroke-width="1" stroke-dasharray="2 4"/>'
+
+
+def scene(vb_w, vb_h, base, inner, label, th, ground_h=None, slice_=True, grid=100):
+    gh = ground_h if ground_h is not None else vb_h - base
+    g = []
+    for gx in range(0, vb_w + 1, grid):
+        g.append(f'M{gx} 0V{vb_h}')
+    for gy in range(0, vb_h + 1, grid):
+        g.append(f'M0 {gy}H{vb_w}')
+    par = "xMidYMid slice" if slice_ else "xMidYMid meet"
     return (
-        f'<g class="dim"><line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}"/>'
-        f'<line x1="{x-4}" y1="{y1}" x2="{x+4}" y2="{y1}"/>'
-        f'<line x1="{x-4}" y1="{y2}" x2="{x+4}" y2="{y2}"/>'
-        f'<text x="{x+side*8}" y="{mid}" transform="rotate(-90 {x+side*8} {mid})" text-anchor="middle">{label}</text></g>'
+        f'<svg class="scene" viewBox="0 0 {vb_w} {vb_h}" preserveAspectRatio="{par}" role="img" aria-label="{label}">'
+        f'<rect width="{vb_w}" height="{vb_h}" fill="{th["sky"]}"/>'
+        f'<rect y="{base-vb_h*.17:.0f}" width="{vb_w}" height="{vb_h*.17:.0f}" fill="{th["band"]}"/>'
+        f'<path d="{"".join(g)}" stroke="{th["grid"]}" stroke-opacity="{th["gridop"]}" stroke-width="1" fill="none"/>'
+        f'<rect y="{base}" width="{vb_w}" height="{gh}" fill="{th["ground"]}"/>'
+        f'{inner}'
+        f'<line x1="0" y1="{base}" x2="{vb_w}" y2="{base}" stroke="{th["edge"]}" stroke-width="1.6"/></svg>'
     )
 
 
-def dim_h(y, x1, x2, label):
-    mid = (x1 + x2) / 2
-    return (
-        f'<g class="dim"><line x1="{x1}" y1="{y}" x2="{x2}" y2="{y}"/>'
-        f'<line x1="{x1}" y1="{y-4}" x2="{x1}" y2="{y+4}"/>'
-        f'<line x1="{x2}" y1="{y-4}" x2="{x2}" y2="{y+4}"/>'
-        f'<text x="{mid}" y="{y-7}" text-anchor="middle">{label}</text></g>'
-    )
+def skyline(vb_w, base, th, seed=3):
+    """Faint, abstract background massing for depth. Not a depiction of real context."""
+    r = rng(seed)
+    o, x = [], -20
+    while x < vb_w:
+        w = 50 + r() * 70
+        h = 50 + r() * 150
+        o.append(f'<rect x="{x:.0f}" y="{base-h:.0f}" width="{w:.0f}" height="{h:.0f}" fill="{th["band"]}" fill-opacity=".85"/>')
+        x += w + 8 + r() * 30
+    return "".join(o)
 
 
-def frame(vb_w, vb_h, body, label, uid):
-    return (
-        f'<svg class="dwg" viewBox="0 0 {vb_w} {vb_h}" role="img" aria-label="{label}" preserveAspectRatio="xMidYMid meet">'
-        f'<defs><pattern id="g{uid}" width="20" height="20" patternUnits="userSpaceOnUse">'
-        f'<path d="M20 0H0V20" fill="none" stroke="{BRIGHT}" stroke-opacity=".13" stroke-width=".6"/></pattern></defs>'
-        f'<rect width="{vb_w}" height="{vb_h}" fill="url(#g{uid})"/>{body}</svg>'
-    )
-
-
-def elevation(blocks, fh, vb_w, vb_h, label, uid, gap=18, base=None, dims=True, bay=4):
-    """blocks: list of (floors, width, tag). Floors are drawn as thin lines."""
-    base = base if base is not None else vb_h - 56
-    total = sum(w for _, w, _ in blocks) + gap * (len(blocks) - 1)
+# ----------------------------------------------------------------- scenes
+def union_group(th, vb_w, base, fh, ws, gap, lit=0.0, label_size=17):
+    floors = [18, 24, 10]  # G+17, G+23, G+9 above ground
+    names = ["B+G+17", "B+G+23", "B+G+9"]
+    total = sum(ws) + gap * 2
     x = (vb_w - total) / 2
-    out = [f'<line class="ground" x1="12" y1="{base}" x2="{vb_w-12}" y2="{base}" pathLength="1"/>']
-    for floors, w, tag in blocks:
-        h = floors * fh
-        y = base - h
-        out.append(f'<rect class="mass" x="{x}" y="{y}" width="{w}" height="{h}" pathLength="1"/>')
-        # bays (structural grid)
-        for i in range(1, bay):
-            bx = x + w * i / bay
-            out.append(f'<line class="bay" x1="{bx:.1f}" y1="{y}" x2="{bx:.1f}" y2="{base}"/>')
-        # floor lines
-        for f in range(1, floors):
-            fy = base - f * fh
-            out.append(f'<line class="flr" x1="{x}" y1="{fy}" x2="{x+w}" y2="{fy}"/>')
-        out.append(f'<rect class="mass2" x="{x+w*0.3}" y="{y-fh*0.8}" width="{w*0.4}" height="{fh*0.8}" pathLength="1"/>')
-        out.append(f'<text class="tag" x="{x+w/2}" y="{y-fh*0.8-8}" text-anchor="middle">{tag}</text>')
-        # column-head markers on the ground line
-        out.append(f'<path class="mark" d="M{x-3} {base+9}h6M{x} {base+6}v6"/>')
-        out.append(f'<path class="mark" d="M{x+w-3} {base+9}h6M{x+w} {base+6}v6"/>')
+    o = [skyline(vb_w, base, th)]
+    pod_h = fh * 1.9
+    o.append(f'<rect x="{x-34:.1f}" y="{base-pod_h:.1f}" width="{total+68:.1f}" height="{pod_h:.1f}" fill="{th["body"]}" stroke="{th["edge"]}" stroke-width="1.4"/>')
+    o.append(f'<rect x="{x-24:.1f}" y="{base-fh*1.5:.1f}" width="{total+48:.1f}" height="{fh*.9:.1f}" fill="{th["win"]}" fill-opacity=".7"/>')
+    for i, (fl, w, nm) in enumerate(zip(floors, ws, names)):
+        o.append(tower(x, base - pod_h + 1, w, fl, fh, th, lit=lit, seed=7 + i, lobby=False))
+        top = base - pod_h - fl * fh - fh * .9 - 4
+        o.append(leader(x + w / 2, top - 24, top - 46, th))
+        o.append(tag(x + w / 2, top - 56, nm, th, label_size))
         x += w + gap
-    if dims:
-        tallest = max(f for f, _, _ in blocks) * fh
-        x0 = (vb_w - total) / 2 - 22
-        out.append(dim_v(x0, base - tallest, base, "RELATIVE HEIGHT"))
-        out.append(dim_h(base + 30, (vb_w - total) / 2, (vb_w + total) / 2, "SCHEMATIC · NOT TO SCALE"))
-    return frame(vb_w, vb_h, "".join(out), label, uid)
+    o.append(trees([40, 90, vb_w - 60, vb_w - 110], base, th, 80))
+    return "".join(o)
 
 
-def site_plan(uid):
-    """Abstract site diagram for Neotia Getwel: plot, footprint, dimensions."""
-    vb_w, vb_h = 640, 400
-    out = [
-        '<rect class="mass" x="90" y="60" width="430" height="250" pathLength="1"/>',
-        '<rect class="mass2" x="150" y="105" width="200" height="90" pathLength="1"/>',
-        '<rect class="mass2" x="150" y="195" width="90" height="70" pathLength="1"/>',
-        '<rect class="mass2" x="380" y="105" width="90" height="160" pathLength="1"/>',
-    ]
-    for i in range(1, 8):  # hatch inside main block
-        out.append(f'<line class="bay" x1="{150+i*25}" y1="105" x2="{150+i*25}" y2="195"/>')
-    for j in range(1, 4):
-        out.append(f'<line class="bay" x1="150" y1="{105+j*22.5}" x2="350" y2="{105+j*22.5}"/>')
-    out.append('<path class="mark" d="M90 60l-10-10M520 60l10-10M90 310l-10 10M520 310l10 10"/>')
-    out.append(dim_h(345, 90, 520, "SITE · 3.9 ACRES"))
-    out.append(dim_v(560, 60, 310, "BUILT AREA · 2 LAKH SQ FT"))
-    out.append('<text class="tag" x="250" y="150" text-anchor="middle">250 BEDS</text>')
-    out.append('<text class="micro" x="90" y="40">SITE DIAGRAM · SCHEMATIC</text>')
-    return frame(vb_w, vb_h, "".join(out), "Schematic site diagram for Neotia Getwel Healthcare Centre, Siliguri: 3.9 acre site, 2 lakh square feet built area, 250 beds", uid)
+def hero_scene():
+    th = DUSK
+    return scene(820, 760, 640, union_group(th, 820, 640, 20, [150, 126, 138], 26, lit=0.22),
+                 "Illustration of the three Union Bank buildings at New Town: a B+G+17 headquarters, B+G+23 residential apartments and a B+G+9 hostel and amenities block", th)
 
 
-def hospitals_grid(uid):
-    """Twelve markers: 12 hospitals, Punjab. No geography is implied."""
-    vb_w, vb_h = 640, 400
-    out = []
-    n = 0
-    for r in range(3):
-        for c in range(4):
-            n += 1
-            x, y = 130 + c * 110, 70 + r * 90
-            out.append(f'<rect class="mass2" x="{x}" y="{y}" width="70" height="56" pathLength="1"/>')
-            out.append(f'<path class="mark" d="M{x+35-6} {y+28}h12M{x+35} {y+22}v12"/>')
-            out.append(f'<text class="micro" x="{x}" y="{y-8}">H-{n:02d}</text>')
-    out.append(dim_h(360, 130, 570, "12 HOSPITALS · WORLD BANK SCHEME"))
-    return frame(vb_w, vb_h, "".join(out), "Twelve numbered hospital markers representing the Punjab healthcare renovation programme", uid)
+def featured_scene():
+    th = DAY
+    return scene(1100, 820, 720, union_group(th, 1100, 720, 23, [210, 176, 190], 44, label_size=19),
+                 "Illustration of the Union Bank Headquarters complex, New Town, Kolkata: a B+G+17 headquarters, B+G+23 residential apartments and a B+G+9 hostel and amenities block", th)
 
 
-def institutions(uid):
-    """Simple school and temple elevations (outline only)."""
-    vb_w, vb_h = 640, 400
-    base = 320
-    out = [f'<line class="ground" x1="12" y1="{base}" x2="{vb_w-12}" y2="{base}" pathLength="1"/>']
-    # school: long low block with entry
-    out.append(f'<rect class="mass" x="60" y="{base-90}" width="260" height="90" pathLength="1"/>')
-    out.append(f'<rect class="mass2" x="165" y="{base-120}" width="50" height="120" pathLength="1"/>')
-    for i in range(1, 8):
-        out.append(f'<line class="bay" x1="{60+i*32.5}" y1="{base-90}" x2="{60+i*32.5}" y2="{base}"/>')
-    out.append(f'<line class="flr" x1="60" y1="{base-45}" x2="320" y2="{base-45}"/>')
-    out.append(f'<text class="tag" x="190" y="{base-134}" text-anchor="middle">SCHOOLS</text>')
-    # temple: base, shikhara-like stepped profile
-    out.append(f'<path class="mass" d="M380 {base}V{base-60}H560V{base}" pathLength="1"/>')
-    out.append(f'<path class="mass2" d="M410 {base-60}V{base-100}H530V{base-60}M440 {base-100}V{base-135}H500V{base-100}M470 {base-135}V{base-165}H470" pathLength="1"/>')
-    out.append(f'<path class="mark" d="M470 {base-165}V{base-185}"/>')
-    out.append(f'<text class="tag" x="470" y="{base-196}" text-anchor="middle">WORSHIP</text>')
-    out.append(dim_h(base + 34, 60, 560, "SCHEMATIC · NOT TO SCALE"))
-    return frame(vb_w, vb_h, "".join(out), "Outline elevations of a school block and a temple, representing the education and worship projects", uid)
-
-
-def interior(uid):
-    """Room plan with door swing and furniture outlines."""
-    vb_w, vb_h = 640, 400
-    out = [
-        '<path class="mass" d="M110 70H530V330H110Z" pathLength="1"/>',
-        '<path class="mass2" d="M110 200H330M330 70V200" pathLength="1"/>',
-        '<path class="mark" d="M250 200a40 40 0 0 1 40 -40"/>',
-        '<rect class="mass2" x="380" y="110" width="110" height="60" pathLength="1"/>',
-        '<rect class="mass2" x="380" y="250" width="110" height="50" pathLength="1"/>',
-        '<rect class="mass2" x="150" y="240" width="130" height="60" pathLength="1"/>',
-        '<rect class="mass2" x="150" y="100" width="60" height="60" pathLength="1"/>',
-        '<text class="micro" x="110" y="52">INTERIOR · PLAN DIAGRAM</text>',
-        dim_h(360, 110, 530, "HEALTHCARE · HOSPITALITY · RETAIL · RESIDENTIAL"),
-    ]
-    return frame(vb_w, vb_h, "".join(out), "Schematic room plan representing interior design work", uid)
-
-
-def hero(uid):
-    vb_w, vb_h = 640, 640
-    base = 520
-    fh = 12.5
-    # B+G+17 -> 19 levels incl. basement noted in tag only; draw above-ground G+17 = 18 levels
-    blocks = [(18, 150, "B+G+17"), (24, 130, "B+G+23"), (10, 120, "B+G+9")]
-    total = sum(w for _, w, _ in blocks) + 24 * 2
-    x = (vb_w - total) / 2 + 8
-    out = [f'<line class="ground" x1="20" y1="{base}" x2="{vb_w-20}" y2="{base}" pathLength="1"/>']
-    names = ["HEADQUARTERS", "RESIDENTIAL", "HOSTEL & AMENITIES"]
-    px0 = x - 14
-    out.append(f'<rect class="mass2" x="{px0}" y="{base-2*fh}" width="{total-2}" height="{2*fh}" pathLength="1"/>')
-    for (fl, w, tag), nm in zip(blocks, names):
+def sheet_scene():
+    """Technical elevation sheet: outline drawing with height dimensions."""
+    th = DAY
+    vb_w, vb_h, base, fh = 1400, 470, 395, 14.6
+    ws, gap = [270, 230, 240], 110
+    floors = [18, 24, 10]
+    names = ["B+G+17", "B+G+23", "B+G+9"]
+    subs = ["HEADQUARTERS", "RESIDENTIAL APARTMENTS", "HOSTEL & AMENITIES"]
+    total = sum(ws) + gap * 2
+    x = (vb_w - total) / 2
+    o = []
+    for fl, w, nm, sb in zip(floors, ws, names, subs):
         h = fl * fh
-        y = base - h
-        out.append(f'<rect class="mass" x="{x}" y="{y}" width="{w}" height="{h}" pathLength="1"/>')
-        for i in range(1, 5):
-            out.append(f'<line class="bay" x1="{x+w*i/5:.1f}" y1="{y}" x2="{x+w*i/5:.1f}" y2="{base}"/>')
+        o.append(f'<rect x="{x}" y="{base-h}" width="{w}" height="{h}" fill="#fff" stroke="{th["line"]}" stroke-width="1.6"/>')
+        for i in range(1, 6):
+            o.append(f'<line x1="{x+w*i/6:.1f}" y1="{base-h}" x2="{x+w*i/6:.1f}" y2="{base}" stroke="{th["accent"]}" stroke-opacity=".28" stroke-width=".8"/>')
         for f in range(1, fl):
-            out.append(f'<line class="flr" x1="{x}" y1="{base-f*fh}" x2="{x+w}" y2="{base-f*fh}"/>')
-        out.append(f'<rect class="mass2" x="{x+w*0.3}" y="{y-fh}" width="{w*0.4}" height="{fh}" pathLength="1"/>')
-        out.append(f'<line class="lead" x1="{x+w/2}" y1="{y-fh}" x2="{x+w/2}" y2="{y-fh-24}"/>')
-        out.append(f'<text class="tag" x="{x+w/2}" y="{y-fh-32}" text-anchor="middle">{tag}</text>')
-        out.append(f'<text class="micro" x="{x+w/2}" y="{base+22}" text-anchor="middle">{nm}</text>')
-        out.append(f'<path class="mark" d="M{x-3} {base+8}h6M{x} {base+5}v6"/>')
-        x += w + 24
-    out.append(dim_v(40, base - 24 * fh, base, "RELATIVE HEIGHT"))
-    out.append(dim_h(base + 56, (vb_w - total) / 2 + 8, (vb_w + total) / 2 - 8, "THREE BUILDINGS · SCHEMATIC · NOT TO SCALE"))
-    return frame(vb_w, vb_h, "".join(out),
-                 "Schematic elevation of the three Union Bank buildings at New Town: a B+G+17 headquarters, B+G+23 residential apartments and a B+G+9 hostel and amenities block, drawn at relative height", uid)
+            o.append(f'<line x1="{x}" y1="{base-f*fh:.1f}" x2="{x+w}" y2="{base-f*fh:.1f}" stroke="{th["accent"]}" stroke-opacity=".34" stroke-width=".7"/>')
+        o.append(tag(x + w / 2, base - h - 14, nm, th, 19))
+        o.append(tag(x + w / 2, base + 30, sb, th, 13, fill=th["muted"]))
+        dx = x + w + 20
+        o.append(f'<g stroke="{th["line"]}" stroke-width="1"><line x1="{dx}" y1="{base-h}" x2="{dx}" y2="{base}"/><line x1="{dx-5}" y1="{base-h}" x2="{dx+5}" y2="{base-h}"/><line x1="{dx-5}" y1="{base}" x2="{dx+5}" y2="{base}"/></g>')
+        x += w + gap
+    o.append(f'<line x1="60" y1="{base}" x2="{vb_w-60}" y2="{base}" stroke="{th["edge"]}" stroke-width="2"/>')
+    return scene(vb_w, vb_h, base, "".join(o), "Technical elevation of the three Union Bank buildings at relative height", th, ground_h=0, slice_=False, grid=60)
 
 
-def icons():
-    s = lambda b: f'<svg class="ico" viewBox="0 0 48 48" aria-hidden="true" focusable="false">{b}</svg>'
-    return {
-        "ico-residential": s('<path d="M10 42V12h16v30M26 42V22h12v20M6 42h36M15 18h6M15 25h6M15 32h6M31 28h2M31 35h2"/>'),
-        "ico-healthcare": s('<rect x="8" y="8" width="32" height="32"/><path d="M24 15v18M15 24h18"/>'),
-        "ico-commercial": s('<path d="M14 42V6h20v36M8 42h32M20 13h8M20 20h8M20 27h8M20 34h8"/>'),
-        "ico-education": s('<path d="M4 18L24 8l20 10-20 10zM12 23v10c0 3 6 6 12 6s12-3 12-6V23M44 18v12"/>'),
-        "ico-hospitality": s('<path d="M6 38V12M6 28h36v10M42 28v-6a5 5 0 0 0-5-5H20v11M12 24a4 4 0 1 0 0 .1"/>'),
-        "ico-interior": s('<path d="M8 8h32v32H8zM8 24h16M24 8v16M30 40v-8h10"/><path d="M16 24a8 8 0 0 0 8-8" />'),
-        "ico-worship": s('<path d="M8 42V26h32v16M12 26c0-8 5-12 12-18 7 6 12 10 12 18M24 4v4M20 42v-8h8v8M4 42h40"/>'),
-    }
+def hospital(th=DAY, vb_w=900, vb_h=680, slice_=True):
+    base = vb_h - 110
+    fh = 42
+    o = [skyline(vb_w, base, th, 11)]
+    o.append(tower(60, base, 120, 3, fh, th, plant=False))
+    o.append(tower(170, base, 440, 5, fh, th, plant=False, cols=13))
+    o.append(tower(610, base, 200, 4, fh, th, plant=False))
+    o.append(tower(372, base, 140, 8, fh, th, plant=False, cols=4))
+    cx = 442
+    o.append(f'<rect x="{cx-21}" y="{base-8*fh+18}" width="42" height="42" fill="{th["line"]}"/>'
+             f'<path d="M{cx} {base-8*fh+28}v22M{cx-11} {base-8*fh+39}h22" stroke="#fff" stroke-width="5"/>')
+    o.append(f'<rect x="{cx-85}" y="{base-fh*1.25-14}" width="170" height="8" fill="{th["edge"]}"/>')
+    o.append(trees([30, 840, 220, 700], base, th, 80))
+    return scene(vb_w, vb_h, base, "".join(o), "Illustration of the Neotia Getwel Healthcare Centre in Siliguri, a 250-bed multispecialty hospital", th, slice_=slice_)
+
+
+def housing(th=DAY, vb_w=900, vb_h=680, slice_=True):
+    base = vb_h - 110
+    fh = 37
+    o = [skyline(vb_w, base, th, 5)]
+    o.append(tower(60, base, 120, 9, fh, th, plant=True, cols=4))
+    o.append(tower(205, base, 120, 10, fh, th, plant=True, cols=4))
+    xs = [365, 480, 595, 710]
+    for x in xs:
+        o.append(tower(x, base, 95, 5, fh, th, plant=False, cols=3))
+    o.append(tag(120, base - 9 * fh - 74, "G+8", th, 18))
+    o.append(tag(265, base - 10 * fh - 74, "G+9", th, 18))
+    o.append(tag((xs[0] + xs[-1] + 95) / 2, base - 5 * fh - 30, "25 × G+4", th, 18))
+    o.append(f'<path d="M{xs[0]} {base-5*fh-14}v-10h{xs[-1]+95-xs[0]}v10" fill="none" stroke="{th["line"]}" stroke-width="1.2"/>')
+    o.append(trees([185, 345, 450, 880], base, th, 70))
+    return scene(vb_w, vb_h, base, "".join(o), "Illustration of HIDCO co-operative housing at New Town: a G+8 building, a G+9 building and blocks of G+4", th, slice_=slice_)
+
+
+def punjab():
+    th = DUSK
+    vb_w, vb_h, base, fh = 1400, 700, 610, 24
+    o = [skyline(vb_w, base, th, 9)]
+    w, gap = 78, 34
+    x0 = (vb_w - (12 * w + 11 * gap)) / 2
+    for i in range(12):
+        x = x0 + i * (w + gap)
+        o.append(tower(x, base, w, 4, fh, th, plant=False, cols=3, lit=0.18, seed=20 + i))
+        cx = x + w / 2
+        o.append(f'<rect x="{cx-11}" y="{base-4*fh-38}" width="22" height="22" fill="{th["line"]}"/>'
+                 f'<path d="M{cx} {base-4*fh-34}v14M{cx-7} {base-4*fh-27}h14" stroke="#fff" stroke-width="3"/>')
+        o.append(tag(cx, base + 34, f"H-{i+1:02d}", th, 12, fill=th["muted"]))
+    return scene(vb_w, vb_h, base, "".join(o), "Twelve hospital buildings representing the Punjab healthcare renovation programme", th)
+
+
+def school(th=DAY, vb_w=640, vb_h=480):
+    base, fh = vb_h - 100, 40
+    o = [skyline(vb_w, base, th, 2)]
+    cx = vb_w / 2
+    o.append(tower(cx - 220, base, 440, 3, fh, th, plant=False, cols=11))
+    o.append(tower(cx - 40, base, 80, 4, fh, th, plant=False, cols=2))
+    o.append(f'<line x1="{cx}" y1="{base-4*fh-4}" x2="{cx}" y2="{base-4*fh-44}" stroke="{th["edge"]}" stroke-width="1.4"/><path d="M{cx} {base-4*fh-44}h26l-6 7 6 7h-26z" fill="{th["line"]}"/>')
+    o.append(trees([cx - 270, cx + 260, cx + 300], base, th, 80))
+    return scene(vb_w, vb_h, base, "".join(o), "Illustration of a school building", th)
+
+
+def temple(th=DAY, vb_w=640, vb_h=480):
+    base = vb_h - 100
+    o = [skyline(vb_w, base, th, 4)]
+    cx = vb_w / 2
+    steps = [(300, 70), (230, 60), (170, 50), (125, 40), (85, 34)]
+    y = base
+    for w, h in steps:
+        y -= h
+        o.append(f'<rect x="{cx-w/2}" y="{y}" width="{w}" height="{h}" fill="{th["body"]}" stroke="{th["edge"]}" stroke-width="1.4"/>'
+                 f'<rect x="{cx-w/2+w*.78}" y="{y}" width="{w*.22}" height="{h}" fill="{th["shade"]}" fill-opacity="{th["shadeop"]}"/>')
+        o.append(f'<line x1="{cx-w/2+8}" y1="{y+h*.5}" x2="{cx+w/2-8}" y2="{y+h*.5}" stroke="{th["win"]}" stroke-width="3"/>')
+    o.append(f'<path d="M{cx} {y-34}V{y-8}" stroke="{th["edge"]}" stroke-width="1.6"/><path d="M{cx-20} {y}Q{cx} {y-30} {cx+20} {y}Z" fill="{th["line"]}"/>')
+    o.append(f'<rect x="{cx-26}" y="{base-70}" width="52" height="70" fill="{th["win"]}" stroke="{th["edge"]}" stroke-width="1.2"/>')
+    o.append(trees([cx - 280, cx - 230, cx + 230, cx + 280], base, th, 85))
+    return scene(vb_w, vb_h, base, "".join(o), "Illustration of a temple building", th)
+
+
+def interior(th=DAY, vb_w=640, vb_h=480):
+    e, ln = th["edge"], th["line"]
+    ox, oy = (vb_w - 500) / 2, (vb_h - 330) / 2
+    o = [
+        f'<g transform="translate({ox} {oy-70})">',
+        f'<rect x="0" y="70" width="500" height="300" fill="#fff" stroke="{e}" stroke-width="1.6"/>',
+        f'<rect x="0" y="340" width="500" height="30" fill="{th["band"]}" stroke="{e}" stroke-width="1.4"/>',
+        f'<rect x="40" y="110" width="150" height="150" fill="{th["win"]}" fill-opacity=".6" stroke="{e}" stroke-width="1.4"/>',
+        f'<path d="M115 110v150M40 185h150" stroke="{e}" stroke-width="1.2"/>',
+        f'<rect x="230" y="270" width="170" height="40" fill="{ln}" fill-opacity=".85"/><rect x="220" y="250" width="190" height="30" fill="{ln}" fill-opacity=".55"/>',
+        f'<rect x="250" y="318" width="130" height="14" fill="{e}" fill-opacity=".8"/>',
+        f'<path d="M440 70v90" stroke="{e}" stroke-width="1.4"/><path d="M420 160h40l-8-28h-24z" fill="{ln}"/>',
+        f'<path d="M230 130h160M230 170h160M230 210h160" stroke="{e}" stroke-width="2"/>',
+        f'<rect x="242" y="104" width="22" height="26" fill="{th["win"]}"/><rect x="270" y="110" width="14" height="20" fill="{ln}" fill-opacity=".6"/><rect x="310" y="144" width="26" height="26" fill="{th["win"]}"/>',
+        f'<rect x="20" y="300" width="70" height="40" fill="{e}" fill-opacity=".14"/></g>',
+    ]
+    return scene(vb_w, vb_h, vb_h, "".join(o), "Illustration of an interior design scheme", th, ground_h=0, grid=80)
+
+
+def hotel(th=DAY, vb_w=900, vb_h=600):
+    base, fh = vb_h - 110, 30
+    o = [skyline(vb_w, base, th, 6)]
+    o.append(tower(220, base, 460, 3, fh, th, plant=False, cols=13))
+    o.append(tower(290, base - 3 * fh, 320, 3, fh, th, plant=False, cols=9, lobby=False))
+    o.append(tower(360, base - 6 * fh, 180, 3, fh, th, plant=False, cols=5, lobby=False))
+    o.append(f'<rect x="60" y="{base+8}" width="140" height="22" fill="{th["win"]}" stroke="{th["edge"]}" stroke-width="1.2"/>')
+    o.append(trees([40, 710, 790, 860], base, th, 90))
+    return scene(vb_w, vb_h, base, "".join(o), "Illustration of a hospitality building", th)
+
+
+def tall(th=DAY, vb_w=900, vb_h=600):
+    base, fh = vb_h - 100, 21
+    o = [skyline(vb_w, base, th, 8)]
+    o.append(tower(250, base, 150, 14, fh, th, cols=6))
+    o.append(tower(430, base, 180, 22, fh, th, cols=7))
+    o.append(tower(640, base, 130, 9, fh, th, cols=5))
+    o.append(trees([60, 200, 820], base, th, 80))
+    return scene(vb_w, vb_h, base, "".join(o), "Illustration of a commercial tower group", th)
 
 
 TOKENS = {
-    "dwg-hero": hero("h"),
-    "dwg-union": elevation([(18, 62, "B+G+17"), (24, 54, "B+G+23"), (10, 50, "B+G+9")], 9, 640, 400, "Schematic elevation of the Union Bank headquarters, residential and hostel buildings at relative height", "u", gap=16, base=330),
-    "dwg-neotia": site_plan("n"),
-    "dwg-hidco": elevation([(9, 60, "G+8"), (10, 60, "G+9"), (5, 60, "G+4"), (5, 60, "G+4"), (5, 60, "G+4")], 16, 640, 400, "Schematic elevations of HIDCO co-operative housing blocks of G+8, G+9 and G+4", "d", gap=26, base=330, dims=True),
-    "dwg-punjab": hospitals_grid("p"),
-    "dwg-edu": institutions("e"),
-    "dwg-interior": interior("i"),
+    "scene-hero": hero_scene(),
+    "scene-featured": featured_scene(),
+    "scene-sheet": sheet_scene(),
+    "scene-hospital": hospital(),
+    "scene-housing": housing(),
+    "scene-punjab": punjab(),
+    "scene-school": school(),
+    "scene-temple": temple(),
+    "scene-interior": interior(),
+    "type-residential": housing(DAY, 900, 600),
+    "type-healthcare": hospital(DAY, 900, 600),
+    "type-commercial": tall(),
+    "type-education": school(DAY, 900, 600),
+    "type-hospitality": hotel(),
+    "type-interior": interior(DAY, 900, 600),
+    "type-worship": temple(DAY, 900, 600),
 }
-TOKENS.update(icons())
 
 
 def main():
     src = (ROOT / "index.src.html").read_text()
+
     def rep(m):
         k = m.group(1)
         if k not in TOKENS:
