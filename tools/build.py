@@ -203,22 +203,6 @@ def housing(th=DAY, vb_w=900, vb_h=680, slice_=True):
     return scene(vb_w, vb_h, base, "".join(o), "Illustration of HIDCO co-operative housing at New Town: a G+8 building, a G+9 building and blocks of G+4", th, slice_=slice_)
 
 
-def punjab():
-    th = DUSK
-    vb_w, vb_h, base, fh = 1400, 700, 610, 24
-    o = [skyline(vb_w, base, th, 9)]
-    w, gap = 78, 34
-    x0 = (vb_w - (12 * w + 11 * gap)) / 2
-    for i in range(12):
-        x = x0 + i * (w + gap)
-        o.append(tower(x, base, w, 4, fh, th, plant=False, cols=3, lit=0.18, seed=20 + i))
-        cx = x + w / 2
-        o.append(f'<rect x="{cx-11}" y="{base-4*fh-38}" width="22" height="22" fill="{th["line"]}"/>'
-                 f'<path d="M{cx} {base-4*fh-34}v14M{cx-7} {base-4*fh-27}h14" stroke="#fff" stroke-width="3"/>')
-        o.append(tag(cx, base + 34, f"H-{i+1:02d}", th, 12, fill=th["muted"]))
-    return scene(vb_w, vb_h, base, "".join(o), "Twelve hospital buildings representing the Punjab healthcare renovation programme", th)
-
-
 def school(th=DAY, vb_w=640, vb_h=480):
     base, fh = vb_h - 100, 40
     o = [skyline(vb_w, base, th, 2)]
@@ -293,7 +277,6 @@ TOKENS = {
     "scene-sheet": sheet_scene(),
     "scene-hospital": hospital(),
     "scene-housing": housing(),
-    "scene-punjab": punjab(),
     "scene-school": school(),
     "scene-temple": temple(),
     "scene-interior": interior(),
