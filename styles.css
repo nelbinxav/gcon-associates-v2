@@ -53,6 +53,7 @@ section{position:relative}
 .brand-text{display:flex;flex-direction:column;gap:3px}
 .brand-text b{font:600 17px/1 var(--head);letter-spacing:.06em;color:var(--navy)}
 .brand-text span{font:400 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--blue)}
+.brand-text .brand-prop{color:var(--navy);opacity:.8}
 .menu{display:flex;align-items:center;gap:clamp(16px,2.4vw,34px)}
 .menu a:not(.btn){font:500 13px/1 var(--head);letter-spacing:.06em;text-transform:uppercase;color:var(--navy);padding:10px 0;position:relative}
 .menu a:not(.btn) i{font:400 11px var(--mono);font-style:normal;color:var(--bright);margin-right:7px;letter-spacing:.04em}
@@ -379,7 +380,8 @@ section{position:relative}
   .feat-img .scene .t{font-size:30px}
   .hero-img .scene .t{font-size:26px}
   .pf-split .scene .t{font-size:24px}
-  .brand-text span{display:none}
+  .brand-text .brand-sub{display:none}
+  .brand-text .brand-prop{font-size:8.5px}
   .brand-text b{font-size:16px}
   .cta-row .btn{flex:1 1 100%;justify-content:space-between}
   .hero-copy{padding-top:36px}
